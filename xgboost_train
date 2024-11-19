@@ -1,0 +1,95 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import roc_auc_score
+from xgboost import XGBClassifier
+from imblearn.over_sampling import SMOTE
+from sklearn.model_selection import StratifiedKFold
+
+
+# 전처리
+def get_preprocessed_data(df):
+    # id, Time 삭제
+    df_copy = df.copy()
+    df_copy.drop(['id','Time'], axis=1, inplace=True)
+
+    # Amount를 StandardScaler로 정규화
+    ss = StandardScaler()
+    df_copy['Amount'] = ss.fit_transform(df_copy['Amount'].values.reshape(-1,1))
+
+    return df_copy
+    
+
+# 학습, 테스트 데이터 집합 준비 
+def get_train_test_dataset(df):
+    df_copy = get_preprocessed_data(df) 
+    
+    X_features = df_copy.drop('Class', axis =1)
+    y_target = df_copy['Class']
+    
+    return train_test_split(X_features, y_target, test_size = 0.3, random_state = 0)
+
+
+# 평가
+def model_eval(y_test, pred=None, pred_proba=None):
+    accuracy = accuracy_score(y_test , pred)
+    precision = precision_score(y_test , pred)
+    recall = recall_score(y_test , pred)
+    f1 = f1_score(y_test,pred)
+    roc_auc = roc_auc_score(y_test, pred_proba)
+    
+    print('Accuracy  :  {0:.4f}\nPrecision :  {1:.4f}\nRecall    :  {2:.4f}\nF1-score  :  {3:.4f}\nAUC       :  {4:.4f}'.format(accuracy, precision, recall, f1, roc_auc))
+    
+    return accuracy, precision, recall, f1, roc_auc
+
+
+# 데이터 집합 
+train = pd.read_csv("./data/train.csv")
+
+# 데이터 준비
+X_train, X_test, y_train, y_test = get_train_test_dataset(train)
+
+# Stratified K-Fold 초기화
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+# 모델 선정
+model = XGBClassifier(n_estimators=500, learning_rate=0.1, max_depth=3, n_jobs=-1, random_state=42)
+
+results = []
+for fold, (train_idx, val_idx) in enumerate(skf.split(X_train, y_train)):
+    print(f"\n<Fold {fold + 1}>")
+    
+    # 훈련/검증 데이터 분할
+    X_train_fold, X_val_fold = X_train.iloc[train_idx], X_train.iloc[val_idx]
+    y_train_fold, y_val_fold = y_train.iloc[train_idx], y_train.iloc[val_idx]
+    
+    # 데이터 증강
+    smote = SMOTE(random_state=42)
+    X_train_resampled, y_train_resampled = smote.fit_resample(X_train_fold, y_train_fold)
+    
+    # 모델 학습
+    model.fit(X_train_resampled, y_train_resampled)
+    
+    # 검증
+    y_val_pred = model.predict(X_val_fold)
+    y_val_pred_proba = model.predict_proba(X_val_fold)[:, 1]
+    
+    # 평가
+    accuracy, precision, recall, f1, roc_auc = model_eval(y_val_fold, y_val_pred, y_val_pred_proba)
+    results.append({'fold': fold + 1, 'accuracy': accuracy, 'precision': precision, 'recall': recall, 'f1': f1, 'roc_auc': roc_auc})
+
+# 평균 계산
+results_df = pd.DataFrame(results)
+mean_results = results_df.mean(numeric_only=True)
+
+# 평균 결과 출력
+print("\n<전체 Fold 평균 결과>")
+print(f"Accuracy : {mean_results['accuracy']:.4f}")
+print(f"Precision: {mean_results['precision']:.4f}")
+print(f"Recall   : {mean_results['recall']:.4f}")
+print(f"F1-score : {mean_results['f1']:.4f}")
+print(f"AUC      : {mean_results['roc_auc']:.4f}")
