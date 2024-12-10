@@ -1,1 +1,1 @@
-https://colab.research.google.com/drive/1DlQMt1WkLtAi6JWpqDUQlXOm-J4sXKBd?usp=sharing
+https://colab.research.google.com/drive/!수정하고다시올릴게요
